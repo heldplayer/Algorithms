@@ -10,7 +10,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Arrays;
 import java.util.stream.Stream;
 import javax.imageio.ImageIO;
 import javax.swing.JFrame;
@@ -39,16 +38,20 @@ public class FeatureDetect {
         ColorConvertOp converter = new ColorConvertOp(null);
         converter.filter(image, rgb);
         DataBufferInt dataBuffer = (DataBufferInt) rgb.getData().getDataBuffer();
+        int[] data = dataBuffer.getData();
+        Sampler2D outputBuffer = new Sampler2D(new int[data.length], width, height);
+        Sampler2D inputBuffer = new Sampler2D(data, width, height);
+        transformBuffer(inputBuffer, outputBuffer);
         JFrame frame = new JFrame(image.toString());
         JPanel canvas = new JPanel() {
             @Override
             public void paint(Graphics g) {
-                int[] index = { 0, 0 };
-                int[] data = dataBuffer.getData();
-                Arrays.stream(data).map(operand -> transformPixel(data, width, height, index[0] % width, index[0]++ / width)).forEach(value -> {
-                    g.setColor(new Color(value));
-                    g.fillRect(index[1] % width, index[1]++ / width, 1, 1);
-                });
+                for (int x = 0; x < this.getWidth(); x++) {
+                    for (int y = 0; y < this.getHeight(); y++) {
+                        g.setColor(new Color(outputBuffer.getPixel(x, y)));
+                        g.fillRect(x, y, 1, 1);
+                    }
+                }
             }
         };
         canvas.setPreferredSize(new Dimension(width, height));
@@ -59,18 +62,29 @@ public class FeatureDetect {
         frame.setVisible(true);
     }
 
-    public static int transformPixel(int[] imageData, int width, int height, int x, int y) {
-        int r = 5;
-        //for (int dx = -r; dx <= r; dx++) {
-        //for (int dy = -r; dy <= r; dy++) {
-        //}
-        //}
-        int pixel = getPixel(imageData, width, height, x, y);
-        int average = (((pixel >> 16) & 0xFF) + ((pixel >> 8) & 0xFF) + (pixel & 0xFF)) / 3;
-        int red = threshold(pixel, 0x40, 0xFF, 16);
-        int green = threshold(pixel, 0x40, 0xFF, 8);
-        int blue = threshold(pixel, 0x40, 0xFF, 0);
-        return red | green | blue;
+    private static void transformBuffer(Sampler2D in, Sampler2D out) {
+        out.iterator().iterate(in, FeatureDetect::transformPixel);
+    }
+
+    public static int transformPixel(Sampler2D in, int x, int y) {
+        int r = 2;
+        int red = 0;
+        int green = 0;
+        int blue = 0;
+        int count = 0;
+        for (int dx = -r; dx <= r; dx++) {
+            for (int dy = -r; dy <= r; dy++) {
+                int pixel = in.getPixel(x + dx, y + dy);
+                red += (pixel >> 16) & 0xFF;
+                green += (pixel >> 8) & 0xFF;
+                blue += pixel & 0xFF;
+                count++;
+            }
+        }
+        red = (red / count) & 0xFF;
+        green = (green / count) & 0xFF;
+        blue = (blue / count) & 0xFF;
+        return (red << 16) | (green << 8) | blue;
     }
 
     private static int threshold(int val, int threshold, int out, int shift) {
